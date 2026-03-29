@@ -1,4 +1,5 @@
 import * as THREE from 'https://unpkg.com/three@0.165.0/build/three.module.js';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 
 const canvas = document.getElementById('game');
 const statusEl = document.getElementById('status');
@@ -13,9 +14,7 @@ renderer.toneMappingExposure = 1.1;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0xc7d9ee, 0.0009);
-
-const sky = new THREE.Color(0x97bbdf);
-renderer.setClearColor(sky);
+renderer.setClearColor(new THREE.Color(0x97bbdf));
 
 const camera = new THREE.PerspectiveCamera(78, window.innerWidth / window.innerHeight, 0.1, 4000);
 
@@ -54,11 +53,8 @@ const snowTexture = (() => {
   for (let i = 0; i < 4500; i++) {
     const alpha = Math.random() * 0.08;
     ctx.fillStyle = `rgba(220, 235, 255, ${alpha})`;
-    const x = Math.random() * 256;
-    const y = Math.random() * 256;
-    const r = 0.4 + Math.random() * 1.5;
     ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.arc(Math.random() * 256, Math.random() * 256, 0.4 + Math.random() * 1.5, 0, Math.PI * 2);
     ctx.fill();
   }
   return new THREE.CanvasTexture(c);
@@ -92,15 +88,16 @@ for (let i = 0; i < pos.count; i++) {
 }
 terrainGeo.computeVertexNormals();
 
-const terrainMat = new THREE.MeshStandardMaterial({
-  color: 0xf2f8ff,
-  map: snowTexture,
-  roughness: 0.76,
-  metalness: 0.04,
-  envMapIntensity: 0.5,
-});
-
-const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+const terrain = new THREE.Mesh(
+  terrainGeo,
+  new THREE.MeshStandardMaterial({
+    color: 0xf2f8ff,
+    map: snowTexture,
+    roughness: 0.76,
+    metalness: 0.04,
+    envMapIntensity: 0.5,
+  })
+);
 terrain.receiveShadow = true;
 scene.add(terrain);
 
@@ -111,15 +108,15 @@ function createPine(x, z, scale = 1) {
     new THREE.MeshStandardMaterial({ color: 0x5f4128, roughness: 0.95 })
   );
   trunk.position.y = 2.1 * scale;
+
   const leaves = new THREE.Mesh(
     new THREE.ConeGeometry(2.7 * scale, 9.4 * scale, 9),
     new THREE.MeshStandardMaterial({ color: 0x284f2e, roughness: 1 })
   );
   leaves.position.y = 8.5 * scale;
   group.add(trunk, leaves);
-  const h = sampleHeight(x, z);
-  group.position.set(x, h, z);
-  group.castShadow = true;
+
+  group.position.set(x, sampleHeight(x, z), z);
   group.traverse((obj) => {
     if (obj.isMesh) {
       obj.castShadow = true;
@@ -163,7 +160,6 @@ function createVillage() {
     lodge.receiveShadow = true;
     village.add(lodge);
   }
-
   scene.add(village);
 }
 createVillage();
@@ -172,6 +168,7 @@ function createLift() {
   const lift = new THREE.Group();
   const ropePts = [];
   const segments = 26;
+
   for (let i = 0; i <= segments; i++) {
     const t = i / segments;
     const p = new THREE.Vector3().lerpVectors(WORLD.liftBottom, WORLD.liftTop, t);
@@ -190,8 +187,10 @@ function createLift() {
     }
   }
 
-  const ropeGeo = new THREE.BufferGeometry().setFromPoints(ropePts);
-  const rope = new THREE.Line(ropeGeo, new THREE.LineBasicMaterial({ color: 0x2c3646 }));
+  const rope = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(ropePts),
+    new THREE.LineBasicMaterial({ color: 0x2c3646 })
+  );
   lift.add(rope);
 
   const chairs = [];
@@ -206,7 +205,6 @@ function createLift() {
       new THREE.BoxGeometry(2.6, 0.35, 1),
       new THREE.MeshStandardMaterial({ color: 0x1d2230 })
     );
-    chair.position.y = 0;
     seat.add(bar, chair);
     seat.castShadow = true;
     lift.add(seat);
@@ -216,10 +214,10 @@ function createLift() {
   scene.add(lift);
   return { chairs, ropePts };
 }
-
 const liftState = createLift();
 
 const player = {
+  id: crypto.randomUUID(),
   pos: new THREE.Vector3(-360, 0, 540),
   vel: new THREE.Vector3(),
   heading: 0,
@@ -256,8 +254,8 @@ function pollGamepad() {
   pads.brake = gp?.buttons?.[0]?.value ?? 0;
 }
 
-const remotePlayers = [];
-for (let i = 0; i < 12; i++) {
+const aiPlayers = [];
+for (let i = 0; i < 8; i++) {
   const bot = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.4, 1.2, 4, 8),
     new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.52 + Math.random() * 0.25, 0.65, 0.55) })
@@ -266,8 +264,23 @@ for (let i = 0; i < 12; i++) {
   bot.userData.pos = new THREE.Vector3(-200 + Math.random() * 500, 0, -900 + Math.random() * 1800);
   bot.userData.vel = new THREE.Vector3();
   bot.userData.phase = Math.random() * Math.PI * 2;
-  remotePlayers.push(bot);
+  aiPlayers.push(bot);
   scene.add(bot);
+}
+
+const networkPlayers = new Map();
+
+function createRemoteMesh(id) {
+  const mesh = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.42, 1.25, 4, 8),
+    new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(Math.random(), 0.7, 0.56) })
+  );
+  mesh.castShadow = true;
+  mesh.userData.id = id;
+  mesh.userData.targetPos = player.pos.clone();
+  mesh.userData.targetHeading = 0;
+  scene.add(mesh);
+  return mesh;
 }
 
 const snowField = new THREE.Points(
@@ -286,14 +299,102 @@ const snowField = new THREE.Points(
 }
 scene.add(snowField);
 
+const SUPABASE_URL = window.__SUPABASE_URL__ ?? localStorage.getItem('SUPABASE_URL') ?? '';
+const SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY__ ?? localStorage.getItem('SUPABASE_ANON_KEY') ?? '';
+const network = {
+  enabled: Boolean(SUPABASE_URL && SUPABASE_ANON_KEY),
+  client: null,
+  channel: null,
+  sendTimer: 0,
+  onlineCount: 1,
+};
+
+if (network.enabled) {
+  network.client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    realtime: { params: { eventsPerSecond: 25 } },
+  });
+
+  network.channel = network.client.channel('alpine-flow', {
+    config: { presence: { key: player.id }, broadcast: { self: false } },
+  });
+
+  network.channel
+    .on('presence', { event: 'sync' }, () => {
+      const state = network.channel.presenceState();
+      network.onlineCount = Math.max(1, Object.keys(state).length);
+    })
+    .on('presence', { event: 'leave' }, (payload) => {
+      const ids = payload.leftPresences?.map((p) => p.id).filter(Boolean) ?? [];
+      ids.forEach((id) => {
+        const entry = networkPlayers.get(id);
+        if (entry) {
+          scene.remove(entry.mesh);
+          networkPlayers.delete(id);
+        }
+      });
+    })
+    .on('broadcast', { event: 'player_state' }, ({ payload }) => {
+      if (!payload || payload.id === player.id) return;
+      let entry = networkPlayers.get(payload.id);
+      if (!entry) {
+        entry = { mesh: createRemoteMesh(payload.id), lastUpdate: performance.now() };
+        networkPlayers.set(payload.id, entry);
+      }
+      entry.lastUpdate = performance.now();
+      entry.mesh.userData.targetPos.set(payload.x, payload.y, payload.z);
+      entry.mesh.userData.targetHeading = payload.heading;
+      entry.mesh.visible = true;
+    })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await network.channel.track({ id: player.id, joinedAt: Date.now() });
+      }
+    });
+}
+
+function sendNetworkState(dt) {
+  if (!network.enabled || !network.channel) return;
+  network.sendTimer += dt;
+  if (network.sendTimer < 0.085) return;
+  network.sendTimer = 0;
+
+  network.channel.send({
+    type: 'broadcast',
+    event: 'player_state',
+    payload: {
+      id: player.id,
+      x: player.pos.x,
+      y: player.pos.y,
+      z: player.pos.z,
+      heading: player.heading,
+      speed: player.vel.length(),
+      t: Date.now(),
+    },
+  });
+}
+
+function updateRemotePlayers(dt) {
+  const staleAfterMs = 9000;
+  const now = performance.now();
+  networkPlayers.forEach((entry, id) => {
+    if (now - entry.lastUpdate > staleAfterMs) {
+      scene.remove(entry.mesh);
+      networkPlayers.delete(id);
+      return;
+    }
+    entry.mesh.position.lerp(entry.mesh.userData.targetPos, Math.min(1, dt * 8));
+    const delta = entry.mesh.userData.targetHeading - entry.mesh.rotation.y;
+    entry.mesh.rotation.y += delta * Math.min(1, dt * 8);
+  });
+}
+
 function updateLift(dt) {
   liftState.chairs.forEach((c) => {
     c.t = (c.t + dt * 0.022) % 1;
     const idx = c.t * (liftState.ropePts.length - 1);
     const low = Math.floor(idx);
     const hi = Math.min(low + 1, liftState.ropePts.length - 1);
-    const blend = idx - low;
-    c.mesh.position.lerpVectors(liftState.ropePts[low], liftState.ropePts[hi], blend);
+    c.mesh.position.lerpVectors(liftState.ropePts[low], liftState.ropePts[hi], idx - low);
   });
 }
 
@@ -317,8 +418,7 @@ function handlePlayer(dt) {
     }
   } else {
     const normal = slopeAt(player.pos.x, player.pos.z);
-    const gravityVec = new THREE.Vector3(0, -9.8, 0);
-    const downhill = gravityVec.projectOnPlane(normal).multiplyScalar(0.42);
+    const downhill = new THREE.Vector3(0, -9.8, 0).projectOnPlane(normal).multiplyScalar(0.42);
 
     player.heading += turnInput * dt * (1.5 + Math.min(player.vel.length() * 0.03, 1.4));
     player.lean = THREE.MathUtils.lerp(player.lean, turnInput * 0.52, dt * 5);
@@ -334,8 +434,12 @@ function handlePlayer(dt) {
     player.pos.addScaledVector(player.vel, dt);
     player.pos.y = sampleHeight(player.pos.x, player.pos.z) + 0.8;
 
-    const nearLift = player.pos.distanceTo(new THREE.Vector3(WORLD.liftBottom.x, sampleHeight(WORLD.liftBottom.x, WORLD.liftBottom.z), WORLD.liftBottom.z)) < 18;
-    if (nearLift && keys.get('KeyE')) {
+    const liftBase = new THREE.Vector3(
+      WORLD.liftBottom.x,
+      sampleHeight(WORLD.liftBottom.x, WORLD.liftBottom.z),
+      WORLD.liftBottom.z
+    );
+    if (player.pos.distanceTo(liftBase) < 18 && keys.get('KeyE')) {
       player.onLift = true;
       player.liftT = 0;
     }
@@ -351,11 +455,10 @@ function handlePlayer(dt) {
   skier.rotation.z = player.lean;
 }
 
-function updateBots(dt) {
-  remotePlayers.forEach((bot, idx) => {
+function updateAI(dt) {
+  aiPlayers.forEach((bot, idx) => {
     const p = bot.userData.pos;
     const v = bot.userData.vel;
-
     const steer = Math.sin(performance.now() * 0.00025 + bot.userData.phase + idx) * 0.9;
     const heading = steer + Math.sin((p.z + idx * 15) * 0.009) * 0.3;
     const dir = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
@@ -365,15 +468,14 @@ function updateBots(dt) {
     v.addScaledVector(grav, dt * 24);
     v.addScaledVector(dir, dt * 2.2);
     v.multiplyScalar(0.982);
-
     p.addScaledVector(v, dt);
+
     if (p.z > 700 || p.length() > WORLD.size * 0.66) {
       p.set(-300 + Math.random() * 650, 0, -980 + Math.random() * 220);
       v.set(0, 0, 0);
     }
 
     p.y = sampleHeight(p.x, p.z) + 0.75;
-
     bot.position.lerp(p, Math.min(1, dt * 7));
     bot.rotation.y = Math.atan2(v.x, v.z);
     bot.rotation.z = THREE.MathUtils.clamp(-v.x * 0.03, -0.45, 0.45);
@@ -398,14 +500,22 @@ function updateSnow(dt) {
 function updateCamera(dt) {
   const target = player.pos.clone();
   const dir = new THREE.Vector3(Math.sin(player.heading), 0, Math.cos(player.heading));
-  const camPos = target.clone().addScaledVector(dir, -18).add(new THREE.Vector3(0, 8 + Math.min(player.vel.length() * 0.15, 4), 0));
+  const camPos = target
+    .clone()
+    .addScaledVector(dir, -18)
+    .add(new THREE.Vector3(0, 8 + Math.min(player.vel.length() * 0.15, 4), 0));
   camera.position.lerp(camPos, Math.min(1, dt * 3.2));
   camera.lookAt(target.x, target.y + 2.2, target.z);
   camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, player.lean * 0.23, dt * 3.5);
 }
 
+function updateStatus() {
+  const networkMode = network.enabled ? `Supabase online: ${network.onlineCount}` : 'Offline sim mode';
+  statusEl.textContent = `${networkMode} • AI skiers: ${aiPlayers.length} • Press E near lift to ride`;
+}
+
 let last = performance.now();
-statusEl.textContent = 'Online: 12 skiers • Press E near lift to ride';
+updateStatus();
 
 function loop(now) {
   const dt = Math.min(0.033, (now - last) / 1000);
@@ -413,9 +523,12 @@ function loop(now) {
 
   updateLift(dt);
   handlePlayer(dt);
-  updateBots(dt);
+  updateAI(dt);
+  updateRemotePlayers(dt);
+  sendNetworkState(dt);
   updateSnow(dt);
   updateCamera(dt);
+  updateStatus();
 
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
@@ -425,6 +538,10 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+window.addEventListener('beforeunload', async () => {
+  if (network.channel) await network.channel.untrack();
 });
 
 requestAnimationFrame(loop);

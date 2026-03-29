@@ -2,21 +2,26 @@
 
 Open-world skiing prototype built with Three.js.
 
-## Current multiplayer status
+## Multiplayer modes
 
-The current build **does not require Supabase**. It uses local simulated skiers to mimic online traffic, so it runs entirely client-side.
+- **Offline simulation (default):** runs with AI skiers only, no backend required.
+- **Supabase Realtime (online):** if `SUPABASE_URL` and `SUPABASE_ANON_KEY` are provided, player movement is broadcast/received in real time.
 
-If you want true real-time multiplayer, you will need to add a backend (Supabase Realtime is a good fit).
-
-## Supabase setup for real multiplayer (optional next step)
+## Supabase realtime setup
 
 1. Create a Supabase project.
-2. Enable Realtime for a `player_states` table.
-3. Add Row Level Security policies so players can only update their own state.
-4. Store per-player transform snapshots (`x`, `y`, `z`, `heading`, `speed`, `timestamp`).
-5. Broadcast high-frequency movement with Realtime channels (10–20hz) and interpolate client-side.
-6. Use presence for lightweight lobby/village occupancy and channel membership.
-7. Add a cleanup job for stale player records.
+2. Copy your project URL and anon key.
+3. Set these in the browser before loading the game, for example in DevTools:
+
+```js
+localStorage.setItem('SUPABASE_URL', 'https://YOUR_PROJECT.supabase.co');
+localStorage.setItem('SUPABASE_ANON_KEY', 'YOUR_ANON_KEY');
+location.reload();
+```
+
+4. Open the game in two browser windows/tabs (or two devices) to see real-time skier updates.
+
+> This version uses Supabase Realtime broadcast/presence channels (`alpine-flow`) for low-latency state sync and interpolation.
 
 ## Run locally
 
@@ -43,5 +48,5 @@ Then open `http://localhost:4173`.
 - Momentum-focused ski feel: downhill acceleration, carving drag, braking
 - Third-person lag camera with turn tilt and wide FOV
 - Ambient snowfall particle system and atmospheric fog
-- Simulated online presence with interpolated AI skiers
+- Supabase Realtime-powered multiplayer interpolation (with offline fallback)
 - Keyboard + gamepad support
